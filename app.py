@@ -593,14 +593,26 @@ def webhook():
     if request.headers.get('content-type') == 'application/json':
         try:
             json_string = request.get_data().decode('utf-8')
+            logger.info(f"📨 Получен webhook: {json_string[:200]}")
             update = telebot.types.Update.de_json(json_string)
+            
+            # ПРИНУДИТЕЛЬНО ЛОГИРУЕМ, ЧТО ПОЛУЧИЛИ
+            if update.message:
+                logger.info(f"📝 Сообщение от {update.message.from_user.id}: {update.message.text}")
+            
+            # Обрабатываем обновление
             bot.process_new_updates([update])
+            
+            # ДОПОЛНИТЕЛЬНО: если это команда /start, обработаем вручную
+            if update.message and update.message.text == '/start':
+                logger.info("🔥 ВРУЧНУЮ вызываем start_command")
+                start_command(update.message)
+            
             return 'OK', 200
         except Exception as e:
-            logger.error(f"❌ Ошибка в webhook: {e}")
+            logger.error(f"❌ Ошибка в webhook: {e}", exc_info=True)
             return 'Error', 500
     return 'Unsupported media type', 415
-
 
 @app.route('/')
 def index():
