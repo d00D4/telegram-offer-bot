@@ -507,11 +507,23 @@ def handle_callback(call):
         if callback_type == CallbackFactory.MAIN_MENU:
             logger.info(f"🏠 Возврат в главное меню для {user_id}")
             keyboard = keyboard_builder.build_main_keyboard()
+            
+            welcome_text = """🏠 <b>Главное меню</b>
+
+Выберите интересующую вас категорию оферов:
+
+• 🏦 РКО — расчётно-кассовое обслуживание
+• 💳 Кредитные карты — лучшие предложения
+• 💳 Дебетовые карты — кэшбек и бонусы
+
+Если нужна помощь — нажмите кнопку "Связь с администратором"👇"""
+            
             bot.edit_message_text(
-                "Выберите интересующую вас группу оферов:",
+                welcome_text,
                 call.message.chat.id,
                 call.message.message_id,
-                reply_markup=keyboard
+                reply_markup=keyboard,
+                parse_mode='HTML'
             )
             bot.answer_callback_query(call.id)
 
