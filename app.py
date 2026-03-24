@@ -1,7 +1,6 @@
 """
 Telegram бот для выдачи реферальных ссылок
-Версия для деплоя на Render.com (webhook) — ИСПРАВЛЕННАЯ
-Порядок: сначала бот, потом обработчики, потом Flask
+Версия для деплоя на Render.com (webhook) — ПОЛНОСТЬЮ РАБОЧАЯ
 """
 
 import os
@@ -409,7 +408,7 @@ logger.info(f"📊 Загружено групп: {len(groups)}")
 
 keyboard_builder = OfferKeyboardBuilder(repository, ADMIN_CONTACT)
 
-# ==================== СОЗДАНИЕ БОТА (ДО ОБРАБОТЧИКОВ!) ====================
+# ==================== СОЗДАНИЕ БОТА ====================
 bot = telebot.TeleBot(TOKEN)
 logger.info("✅ Бот создан")
 
@@ -506,6 +505,7 @@ def handle_callback(call):
 
     try:
         if callback_type == CallbackFactory.MAIN_MENU:
+            logger.info(f"🏠 Возврат в главное меню для {user_id}")
             keyboard = keyboard_builder.build_main_keyboard()
             bot.edit_message_text(
                 "Выберите интересующую вас группу оферов:",
@@ -516,6 +516,7 @@ def handle_callback(call):
             bot.answer_callback_query(call.id)
 
         elif callback_type == CallbackFactory.CONTACT_ADMIN:
+            logger.info(f"📞 Запрос контакта админа от {user_id}")
             bot.answer_callback_query(
                 call.id,
                 "Администратор: @" + ADMIN_CONTACT,
@@ -524,6 +525,7 @@ def handle_callback(call):
 
         elif callback_type == CallbackFactory.GROUP_PREFIX:
             group_name = callback_data.get('group_name')
+            logger.info(f"📂 Просмотр группы '{group_name}' пользователем {user_id}")
             group = repository.get_group(group_name)
 
             if group:
@@ -534,12 +536,15 @@ def handle_callback(call):
                     call.message.message_id,
                     reply_markup=keyboard
                 )
+                logger.info(f"✅ Показана группа '{group_name}' для {user_id}")
             else:
+                logger.warning(f"⚠️ Группа '{group_name}' не найдена")
                 bot.answer_callback_query(call.id, "Группа не найдена", show_alert=True)
 
         elif callback_type == CallbackFactory.PAGE_PREFIX:
             group_name = callback_data.get('group_name')
             page = int(callback_data.get('value', 0))
+            logger.info(f"📄 Переход на страницу {page} группы '{group_name}' для {user_id}")
             group = repository.get_group(group_name)
 
             if group:
@@ -555,14 +560,17 @@ def handle_callback(call):
         elif callback_type == CallbackFactory.OFFER_PREFIX:
             group_name = callback_data.get('group_name')
             index = int(callback_data.get('value', 0))
+            logger.info(f"📋 Просмотр офера #{index} из группы '{group_name}' для {user_id}")
             group = repository.get_group(group_name)
 
             if not group:
+                logger.warning(f"⚠️ Группа '{group_name}' не найдена")
                 bot.answer_callback_query(call.id, "Группа не найдена", show_alert=True)
                 return
 
             offer = group.get_offer(index)
             if not offer:
+                logger.warning(f"⚠️ Офер #{index} не найден")
                 bot.answer_callback_query(call.id, "Офер не найден", show_alert=True)
                 return
 
@@ -575,11 +583,15 @@ def handle_callback(call):
                 parse_mode='HTML',
                 disable_web_page_preview=False
             )
+            logger.info(f"✅ Показан офер '{offer.name}' для {user_id}")
             bot.answer_callback_query(call.id)
 
     except Exception as e:
-        logger.error(f"❌ Ошибка в callback: {e}")
-        bot.answer_callback_query(call.id, "Произошла ошибка", show_alert=True)
+        logger.error(f"❌ Ошибка в callback: {e}", exc_info=True)
+        try:
+            bot.answer_callback_query(call.id, "Произошла ошибка", show_alert=True)
+        except:
+            logger.error("❌ Не удалось отправить ответ об ошибке")
 
 
 # ==================== FLASK WEBHOOK ====================
@@ -596,23 +608,31 @@ def webhook():
             logger.info(f"📨 Получен webhook: {json_string[:200]}")
             update = telebot.types.Update.de_json(json_string)
             
-            # ПРИНУДИТЕЛЬНО ЛОГИРУЕМ, ЧТО ПОЛУЧИЛИ
+            # Обрабатываем сообщения
             if update.message:
                 logger.info(f"📝 Сообщение от {update.message.from_user.id}: {update.message.text}")
+                bot.process_new_updates([update])
+                
+                # Дополнительно обрабатываем /start вручную
+                if update.message.text == '/start':
+                    logger.info("🔥 ВРУЧНУЮ вызываем start_command")
+                    start_command(update.message)
             
-            # Обрабатываем обновление
-            bot.process_new_updates([update])
-            
-            # ДОПОЛНИТЕЛЬНО: если это команда /start, обработаем вручную
-            if update.message and update.message.text == '/start':
-                logger.info("🔥 ВРУЧНУЮ вызываем start_command")
-                start_command(update.message)
+            # Обрабатываем callback-запросы
+            elif update.callback_query:
+                logger.info(f"🔘 Callback от {update.callback_query.from_user.id}: {update.callback_query.data}")
+                bot.process_new_updates([update])
+                
+                # Дополнительно обрабатываем callback вручную
+                logger.info("🔘 ВРУЧНУЮ вызываем handle_callback")
+                handle_callback(update.callback_query)
             
             return 'OK', 200
         except Exception as e:
             logger.error(f"❌ Ошибка в webhook: {e}", exc_info=True)
             return 'Error', 500
     return 'Unsupported media type', 415
+
 
 @app.route('/')
 def index():
