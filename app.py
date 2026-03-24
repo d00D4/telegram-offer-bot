@@ -1,6 +1,6 @@
 """
 Telegram бот для выдачи реферальных ссылок
-Версия для деплоя на Render.com (webhook)
+Версия для деплоя на Render.com (webhook) — исправленная
 """
 
 import os
@@ -22,14 +22,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==================== КОНФИГУРАЦИЯ ====================
-# Берем переменные окружения или используем значения по умолчанию
 TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '8755780244:AAE2PG3ExVZ4Z-Hpd2iblESfdC02YfTG5pc')
 ADMIN_ID = int(os.environ.get('ADMIN_ID', '7842146773'))
 ADMIN_CONTACT = os.environ.get('ADMIN_CONTACT', 'WhyNotToDoThis')
 EXCEL_FILE = os.environ.get('EXCEL_FILE', 'offers.xlsx')
 
-# ==================== МОДЕЛИ ДАННЫХ ====================
 
+# ==================== МОДЕЛИ ДАННЫХ ====================
 @dataclass
 class Offer:
     """Модель данных офера"""
@@ -40,10 +39,10 @@ class Offer:
     type: str = ''
     full_payment: str = ''
     payment: str = ''
-    
+
     def is_valid(self) -> bool:
         return bool(self.name and self.link)
-    
+
     def to_display_text(self) -> str:
         """Форматирование для отображения"""
         if self.type == '+':
@@ -52,17 +51,17 @@ class Offer:
         else:
             type_emoji = "🏦"
             type_text = "Офер"
-        
+
         text_parts = [f"{type_emoji} <b>{type_text}:</b> {self.name}"]
-        
+
         if self.reward:
             text_parts.append(f"💰 <b>Вознаграждение:</b> {self.reward} руб")
-        
+
         if self.conditions:
             text_parts.append(f"📋 <b>Условия:</b> {self.conditions}")
-        
+
         text_parts.append(f"\n🔗 <b>Ссылка:</b> {self.link}")
-        
+
         return "\n".join(text_parts)
 
 
@@ -71,14 +70,14 @@ class OfferGroup:
     """Модель группы оферов"""
     name: str
     offers: List[Offer]
-    
+
     def __post_init__(self):
         self.offers = [offer for offer in self.offers if offer.is_valid()]
-    
+
     @property
     def offers_count(self) -> int:
         return len(self.offers)
-    
+
     def get_offer(self, index: int) -> Optional[Offer]:
         if 0 <= index < len(self.offers):
             return self.offers[index]
@@ -86,10 +85,9 @@ class OfferGroup:
 
 
 # ==================== ПАРСЕР EXCEL ====================
-
 class ExcelOfferParser:
     """Парсер оферов из Excel файла"""
-    
+
     RKO_COLUMNS = ['Оферы', 'Выплата', 'Вознаграждение', 'Условия', 'Ссылка', 'Тип']
     RKO_MAPPING = {
         'Оферы': 'name',
@@ -99,7 +97,7 @@ class ExcelOfferParser:
         'Ссылка': 'link',
         'Тип': 'type'
     }
-    
+
     OTHER_COLUMNS = ['Оферы', 'Выплата 100%', 'Вознаграждение', 'Условия', 'Ссылка']
     OTHER_MAPPING = {
         'Оферы': 'name',
@@ -108,26 +106,26 @@ class ExcelOfferParser:
         'Условия': 'conditions',
         'Ссылка': 'link'
     }
-    
+
     def __init__(self, file_path: str):
         self.file_path = file_path
-    
+
     def parse(self) -> Dict[str, OfferGroup]:
         """Парсинг Excel файла"""
         try:
             excel_file = pd.ExcelFile(self.file_path)
             groups = {}
-            
+
             for sheet_name in excel_file.sheet_names:
                 df = pd.read_excel(self.file_path, sheet_name=sheet_name)
-                
+
                 if self._is_rko_table(df):
                     logger.info(f"Лист '{sheet_name}' определен как таблица РКО")
                     offers = self._parse_rko_offers(df)
                 else:
                     logger.info(f"Лист '{sheet_name}' определен как обычная таблица")
                     offers = self._parse_other_offers(df)
-                
+
                 group_name = self._get_group_name_with_emoji(sheet_name)
                 if offers:
                     groups[group_name] = OfferGroup(
@@ -135,64 +133,64 @@ class ExcelOfferParser:
                         offers=offers
                     )
                     logger.info(f"Загружена группа '{group_name}' с {len(offers)} оферами")
-            
+
             return groups
-            
+
         except Exception as e:
             logger.error(f"Ошибка при парсинге Excel: {e}")
             return {}
-    
+
     def _is_rko_table(self, df: pd.DataFrame) -> bool:
         return 'Тип' in df.columns
-    
+
     def _parse_rko_offers(self, df: pd.DataFrame) -> List[Offer]:
         offers = []
         available_columns = [col for col in self.RKO_COLUMNS if col in df.columns]
-        
+
         for _, row in df.iterrows():
             offer_data = {}
             for col in available_columns:
                 if col in self.RKO_MAPPING:
                     value = row[col] if pd.notna(row[col]) else ''
                     offer_data[self.RKO_MAPPING[col]] = str(value)
-            
+
             for field in ['name', 'payment', 'reward', 'conditions', 'link', 'type']:
                 if field not in offer_data:
                     offer_data[field] = ''
-            
+
             offer = Offer(**offer_data)
             if offer.is_valid():
                 offers.append(offer)
-        
+
         return offers
-    
+
     def _parse_other_offers(self, df: pd.DataFrame) -> List[Offer]:
         offers = []
         available_columns = [col for col in self.OTHER_COLUMNS if col in df.columns]
-        
+
         for _, row in df.iterrows():
             offer_data = {}
             for col in available_columns:
                 if col in self.OTHER_MAPPING:
                     value = row[col] if pd.notna(row[col]) else ''
                     offer_data[self.OTHER_MAPPING[col]] = str(value)
-            
+
             for field in ['name', 'full_payment', 'reward', 'conditions', 'link']:
                 if field not in offer_data:
                     offer_data[field] = ''
-            
+
             offer_data['type'] = ''
             offer_data['payment'] = ''
-            
+
             offer = Offer(**offer_data)
             if offer.is_valid():
                 offers.append(offer)
-        
+
         return offers
-    
+
     def _get_group_name_with_emoji(self, sheet_name: str) -> str:
         sheet_lower = sheet_name.lower()
-        
+
         if 'рко' in sheet_lower:
             return f"🏦 {sheet_name}"
         elif 'кредит' in sheet_lower:
@@ -210,26 +208,25 @@ class ExcelOfferParser:
 
 
 # ==================== РЕПОЗИТОРИЙ ====================
-
 class ExcelOfferRepository:
     """Репозиторий оферов на основе Excel файла"""
-    
+
     def __init__(self, file_path: str, parser: ExcelOfferParser):
         self.file_path = file_path
         self.parser = parser
         self._groups: Dict[str, OfferGroup] = {}
         self._last_load_time = 0
         self._cache_ttl = 300
-    
+
     def load_offers(self) -> Dict[str, OfferGroup]:
         current_time = time.time()
-        
+
         if not self._groups or (current_time - self._last_load_time) > self._cache_ttl:
             self._groups = self.parser.parse()
             self._last_load_time = current_time
-        
+
         return self._groups
-    
+
     def reload(self) -> bool:
         try:
             self._groups = self.parser.parse()
@@ -238,39 +235,38 @@ class ExcelOfferRepository:
         except Exception as e:
             logger.error(f"Ошибка при перезагрузке: {e}")
             return False
-    
+
     def get_groups(self) -> List[str]:
         return list(self.load_offers().keys())
-    
+
     def get_group(self, name: str) -> Optional[OfferGroup]:
         return self.load_offers().get(name)
 
 
 # ==================== ФАБРИКА CALLBACK ====================
-
 class CallbackFactory:
     MAIN_MENU = "main_menu"
     CONTACT_ADMIN = "contact_admin"
     GROUP_PREFIX = "group"
     OFFER_PREFIX = "offer"
     PAGE_PREFIX = "page"
-    
+
     @classmethod
     def group(cls, group_name: str) -> str:
         return f"{cls.GROUP_PREFIX}|{group_name}"
-    
+
     @classmethod
     def offer(cls, group_name: str, index: int) -> str:
         return f"{cls.OFFER_PREFIX}|{group_name}|{index}"
-    
+
     @classmethod
     def page(cls, group_name: str, page: int) -> str:
         return f"{cls.PAGE_PREFIX}|{group_name}|{page}"
-    
+
     @classmethod
     def parse(cls, callback_data: str) -> Dict[str, Any]:
         parts = callback_data.split('|')
-        
+
         if len(parts) == 1:
             return {'type': parts[0]}
         elif len(parts) == 2:
@@ -285,23 +281,22 @@ class CallbackFactory:
 
 
 # ==================== КЛАВИАТУРЫ ====================
-
 class OfferKeyboardBuilder:
     def __init__(self, repository: ExcelOfferRepository, admin_contact: Optional[str] = None):
         self.repository = repository
         self.admin_contact = admin_contact
         self.items_per_page = 5
-    
+
     def build_main_keyboard(self) -> types.InlineKeyboardMarkup:
         keyboard = types.InlineKeyboardMarkup(row_width=1)
-        
+
         for group_name in self.repository.get_groups():
             button = types.InlineKeyboardButton(
                 text=f"{group_name}",
                 callback_data=CallbackFactory.group(group_name)
             )
             keyboard.add(button)
-        
+
         if self.admin_contact:
             username = self.admin_contact.replace('@', '')
             contact_button = types.InlineKeyboardButton(
@@ -314,72 +309,71 @@ class OfferKeyboardBuilder:
                 callback_data=CallbackFactory.CONTACT_ADMIN
             )
         keyboard.add(contact_button)
-        
+
         return keyboard
-    
+
     def build_group_keyboard(self, group_name: str, page: int = 0) -> types.InlineKeyboardMarkup:
         keyboard = types.InlineKeyboardMarkup(row_width=1)
-        
+
         group = self.repository.get_group(group_name)
         if not group:
             return keyboard
-        
+
         start_idx = page * self.items_per_page
         end_idx = min(start_idx + self.items_per_page, group.offers_count)
-        
+
         for i in range(start_idx, end_idx):
             offer = group.offers[i]
-            
+
             if offer.type == '+':
                 type_emoji = "💼"
             elif 'рко' in group_name.lower():
                 type_emoji = "🏦"
             else:
                 type_emoji = "📋"
-            
+
             if offer.reward:
                 button_text = f"{type_emoji} {offer.name} - {offer.reward} руб"
             else:
                 button_text = f"{type_emoji} {offer.name}"
-            
+
             if len(button_text) > 40:
                 button_text = button_text[:37] + "..."
-            
+
             button = types.InlineKeyboardButton(
                 text=button_text,
                 callback_data=CallbackFactory.offer(group_name, i)
             )
             keyboard.add(button)
-        
-        # Навигация
+
         total_pages = (group.offers_count + self.items_per_page - 1) // self.items_per_page
         nav_buttons = []
-        
+
         if page > 0:
             nav_buttons.append(types.InlineKeyboardButton(
                 text="◀️ Назад",
                 callback_data=CallbackFactory.page(group_name, page - 1)
             ))
-        
+
         if page < total_pages - 1:
             nav_buttons.append(types.InlineKeyboardButton(
                 text="Вперед ▶️",
                 callback_data=CallbackFactory.page(group_name, page + 1)
             ))
-        
+
         if nav_buttons:
             keyboard.row(*nav_buttons)
-        
+
         keyboard.add(types.InlineKeyboardButton(
             text="🏠 Главное меню",
             callback_data=CallbackFactory.MAIN_MENU
         ))
-        
+
         return keyboard
-    
+
     def build_offer_keyboard(self, group_name: str, offer: Offer) -> types.InlineKeyboardMarkup:
         keyboard = types.InlineKeyboardMarkup(row_width=1)
-        
+
         if self.admin_contact:
             username = self.admin_contact.replace('@', '')
             admin_button = types.InlineKeyboardButton(
@@ -392,18 +386,16 @@ class OfferKeyboardBuilder:
                 callback_data=CallbackFactory.CONTACT_ADMIN
             )
         keyboard.add(admin_button)
-        
+
         keyboard.add(types.InlineKeyboardButton(
             text="◀️ Назад к списку",
             callback_data=CallbackFactory.group(group_name)
         ))
-        
+
         return keyboard
 
 
-# ==================== СОЗДАНИЕ ЭКЗЕМПЛЯРОВ ====================
-
-# Инициализируем парсер и репозиторий
+# ==================== ИНИЦИАЛИЗАЦИЯ ====================
 parser = ExcelOfferParser(EXCEL_FILE)
 repository = ExcelOfferRepository(EXCEL_FILE, parser)
 
@@ -411,14 +403,13 @@ repository = ExcelOfferRepository(EXCEL_FILE, parser)
 groups = repository.load_offers()
 logger.info(f"Загружено групп: {len(groups)}")
 
-# Создаем строитель клавиатур
 keyboard_builder = OfferKeyboardBuilder(repository, ADMIN_CONTACT)
 
-# Создаем бота
+# СОЗДАЕМ БОТА (ОДИН РАЗ)
 bot = telebot.TeleBot(TOKEN)
 
-# ==================== ОБРАБОТЧИКИ КОМАНД ====================
 
+# ==================== ОБРАБОТЧИКИ КОМАНД ====================
 @bot.message_handler(commands=['start'])
 def start_command(message):
     welcome_text = """Здарова, охотник за халявой! 🤝
@@ -437,7 +428,7 @@ def start_command(message):
 
 Прочитай внимательно. 
 Если после прочтения останутся вопросы — пиши в ЛС, решим. Погнали! 🚀"""
-    
+
     keyboard = keyboard_builder.build_main_keyboard()
     bot.send_message(message.chat.id, welcome_text, reply_markup=keyboard)
 
@@ -470,12 +461,11 @@ def default_message(message):
 
 
 # ==================== ОБРАБОТЧИКИ CALLBACK ====================
-
 @bot.callback_query_handler(func=lambda call: True)
 def handle_callback(call):
     callback_data = CallbackFactory.parse(call.data)
     callback_type = callback_data.get('type')
-    
+
     try:
         if callback_type == CallbackFactory.MAIN_MENU:
             keyboard = keyboard_builder.build_main_keyboard()
@@ -486,18 +476,18 @@ def handle_callback(call):
                 reply_markup=keyboard
             )
             bot.answer_callback_query(call.id)
-        
+
         elif callback_type == CallbackFactory.CONTACT_ADMIN:
             bot.answer_callback_query(
                 call.id,
                 "Администратор: @" + ADMIN_CONTACT,
                 show_alert=True
             )
-        
+
         elif callback_type == CallbackFactory.GROUP_PREFIX:
             group_name = callback_data.get('group_name')
             group = repository.get_group(group_name)
-            
+
             if group:
                 keyboard = keyboard_builder.build_group_keyboard(group_name, 0)
                 bot.edit_message_text(
@@ -508,12 +498,12 @@ def handle_callback(call):
                 )
             else:
                 bot.answer_callback_query(call.id, "Группа не найдена", show_alert=True)
-        
+
         elif callback_type == CallbackFactory.PAGE_PREFIX:
             group_name = callback_data.get('group_name')
             page = int(callback_data.get('value', 0))
             group = repository.get_group(group_name)
-            
+
             if group:
                 keyboard = keyboard_builder.build_group_keyboard(group_name, page)
                 bot.edit_message_text(
@@ -523,21 +513,21 @@ def handle_callback(call):
                     reply_markup=keyboard
                 )
             bot.answer_callback_query(call.id)
-        
+
         elif callback_type == CallbackFactory.OFFER_PREFIX:
             group_name = callback_data.get('group_name')
             index = int(callback_data.get('value', 0))
             group = repository.get_group(group_name)
-            
+
             if not group:
                 bot.answer_callback_query(call.id, "Группа не найдена", show_alert=True)
                 return
-            
+
             offer = group.get_offer(index)
             if not offer:
                 bot.answer_callback_query(call.id, "Офер не найден", show_alert=True)
                 return
-            
+
             keyboard = keyboard_builder.build_offer_keyboard(group_name, offer)
             bot.edit_message_text(
                 offer.to_display_text(),
@@ -548,16 +538,15 @@ def handle_callback(call):
                 disable_web_page_preview=False
             )
             bot.answer_callback_query(call.id)
-    
+
     except Exception as e:
         logger.error(f"Ошибка в callback: {e}")
         bot.answer_callback_query(call.id, "Произошла ошибка", show_alert=True)
 
 
 # ==================== FLASK WEBHOOK ====================
-
-# Создаем Flask приложение
 app = Flask(__name__)
+
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -577,17 +566,15 @@ def index():
 
 
 # ==================== НАСТРОЙКА WEBHOOK ====================
-
 def setup_webhook():
     """Установка webhook при запуске"""
     webhook_url = os.environ.get('RENDER_EXTERNAL_URL')
-    
     if not webhook_url:
         logger.error("RENDER_EXTERNAL_URL не найден! Бот запущен не на Render?")
         return False
-    
+
     webhook_url = f"{webhook_url}/webhook"
-    
+
     try:
         # Удаляем старый webhook
         bot.remove_webhook()
@@ -601,13 +588,12 @@ def setup_webhook():
 
 
 # ==================== ЗАПУСК ====================
-
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    
+
     # Устанавливаем webhook
     setup_webhook()
-    
+
     # Запускаем Flask сервер
     logger.info(f"🚀 Запуск бота на порту {port}")
     app.run(host='0.0.0.0', port=port)
